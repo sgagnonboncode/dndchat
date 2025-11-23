@@ -1,5 +1,5 @@
 
-// WebRTC configuration with STUN and TURN servers
+// WebRTC configuration optimized for low latency
 const rtcConfiguration = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -18,7 +18,10 @@ const rtcConfiguration = {
             credential: 'openrelayproject'
         }
     ],
-    iceCandidatePoolSize: 10
+    iceCandidatePoolSize: 20,  // Increased for faster connection
+    // Low-latency optimizations
+    bundlePolicy: 'max-bundle',
+    rtcpMuxPolicy: 'require'
 };
 
 // Store active peer connections
@@ -169,15 +172,53 @@ function stopStatePolling() {
     }
 }
 
-// Get user media (webcam and microphone)
+// Get user media with low-latency constraints
 async function getUserMedia() {
     if (!localStream) {
         try {
-            localStream = await navigator.mediaDevices.getUserMedia({
-                video: true,
-                audio: true
-            });
-            console.log('Local media stream obtained');
+            // Low-latency media constraints
+            const constraints = {
+                video: {
+                    width: { ideal: 640, max: 1280 },
+                    height: { ideal: 480, max: 720 },
+                    frameRate: { ideal: 30, max: 60 },
+                    // Reduce latency with faster encoding
+                    latency: { ideal: 0.1, max: 0.2 }  // 100-200ms max latency
+                },
+                audio: {
+                    sampleRate: { ideal: 48000 },
+                    channelCount: { ideal: 2 },
+                    // Low audio latency
+                    latency: { ideal: 0.05, max: 0.1 },  // 50-100ms max audio latency
+                    echoCancellation: true,
+                    noiseSuppression: true
+                }
+            };
+            
+            localStream = await navigator.mediaDevices.getUserMedia(constraints);
+            console.log('Local media stream obtained with low-latency constraints');
+            
+            // Log the actual constraints applied
+            const videoTrack = localStream.getVideoTracks()[0];
+            const audioTrack = localStream.getAudioTracks()[0];
+            
+            if (videoTrack) {
+                const videoSettings = videoTrack.getSettings();
+                console.log('Video settings:', {
+                    width: videoSettings.width,
+                    height: videoSettings.height,
+                    frameRate: videoSettings.frameRate
+                });
+            }
+            
+            if (audioTrack) {
+                const audioSettings = audioTrack.getSettings();
+                console.log('Audio settings:', {
+                    sampleRate: audioSettings.sampleRate,
+                    channelCount: audioSettings.channelCount
+                });
+            }
+            
         } catch (error) {
             console.error('Error accessing media devices:', error);
             throw error;

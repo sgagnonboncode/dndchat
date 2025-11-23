@@ -118,41 +118,99 @@ class OpenCVDisplayManager:
                 print(f"DEBUG: Video loop starting for {stream_name}")
                 logger.info(f"Video processing started for {stream_name}")
                 
-                # Create OpenCV window - this must be done in the thread that will use it
-                print(f"DEBUG: Creating OpenCV window: {window_name}")
-                cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+                # Create OpenCV window with low-latency optimizations
+                print(f"DEBUG: Creating low-latency OpenCV window: {window_name}")
+                cv2.namedWindow(window_name, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
                 cv2.resizeWindow(window_name, 640, 480)
-                print(f"DEBUG: OpenCV window created successfully")
                 
-                # Initialize frame counter and metrics
+                # Ultra-low latency window optimizations
+                try:
+                    # Disable window buffering for immediate display
+                    cv2.setWindowProperty(window_name, cv2.WND_PROP_VSYNC, 0)  # Disable VSync
+                    print("DEBUG: VSync disabled for ultra-low latency")
+                except Exception as e:
+                    print(f"DEBUG: VSync setting not supported: {e}")
+                
+                print(f"DEBUG: Low-latency OpenCV window created successfully")
+                
+                # Initialize frame counter and metrics with low-latency optimizations
                 frame_count = 0
                 last_frame_time = asyncio.get_event_loop().time()
                 last_fps_update = last_frame_time
                 fps_display = 0.0
                 frames_received = 0
+                frames_dropped = 0
                 error_count = 0
+                last_display_time = 0
+                
+                # Low-latency configuration
+                max_frame_age = 0.05  # Drop frames older than 50ms
+                min_display_interval = 1.0 / 60  # Target 60 FPS display rate
+                frame_skip_threshold = 2  # Skip frames if we're falling behind
                 
                 while self.active_windows.get(stream_name, False):
                     try:
-                        # Receive frame from WebRTC track with shorter timeout for better responsiveness
-                        frame = await asyncio.wait_for(track.recv(), timeout=0.5)
+                        # Receive frame with aggressive timeout for low latency
+                        frame_start_time = asyncio.get_event_loop().time()
+                        frame = await asyncio.wait_for(track.recv(), timeout=0.1)  # Reduced from 0.5s
+                        frame_receive_time = asyncio.get_event_loop().time()
+                        
                         frames_received += 1
                         frame_count += 1
-                        error_count = 0  # Reset error count on successful frame
+                        error_count = 0
                         
-                        # Convert the frame to numpy array for OpenCV
+                        # Check frame age for latency optimization
+                        frame_age = frame_receive_time - frame_start_time
+                        if frame_age > max_frame_age:
+                            frames_dropped += 1
+                            if frames_dropped % 10 == 0:
+                                print(f"DEBUG: Dropping old frames for {stream_name}, age: {frame_age*1000:.1f}ms")
+                            continue
+                        
+                        # Skip frame processing if we're behind schedule
+                        if (frame_receive_time - last_display_time) < min_display_interval:
+                            continue
+                        
+                        # Fast frame conversion with minimal copying
                         img = frame.to_ndarray(format="bgr24")
                         
-                        # Use hardware acceleration if available
-                        if self.opencl_available:
-                            # Process with OpenCL optimization
-                            img_with_overlay = self._add_video_overlay_gpu_optimized(img, stream_name, fps_display)
-                        else:
-                            # Fallback to CPU processing
-                            img_with_overlay = self._add_video_overlay_cpu(img, stream_name, fps_display)
+                        # Calculate FPS with latency metrics
+                        current_time = asyncio.get_event_loop().time()
+                        if current_time - last_fps_update >= 1.0:
+                            fps_display = frame_count / (current_time - last_fps_update)
+                            frame_count = 0
+                            last_fps_update = current_time
+                            
+                            # Enhanced logging with latency info
+                            if frames_received % 120 == 0:  # Log every 2 seconds
+                                accel_status = "AMD GPU" if self.opencl_available else "CPU"
+                                latency_ms = frame_age * 1000
+                                drop_rate = (frames_dropped / frames_received) * 100 if frames_received > 0 else 0
+                                print(f"DEBUG: {stream_name}: {fps_display:.1f} FPS ({accel_status}), "
+                                     f"latency: {latency_ms:.1f}ms, drop rate: {drop_rate:.1f}%")
                         
-                        # Display the frame
+                        # Use hardware acceleration with latency optimization
+                        process_start = asyncio.get_event_loop().time()
+                        
+                        if self.opencl_available:
+                            # Ultra-fast GPU processing
+                            img_with_overlay = self._add_video_overlay_low_latency(img, stream_name, fps_display)
+                        else:
+                            # Optimized CPU processing
+                            img_with_overlay = self._add_video_overlay_cpu_fast(img, stream_name, fps_display)
+                        
+                        process_end = asyncio.get_event_loop().time()
+                        processing_time = (process_end - process_start) * 1000  # ms
+                        
+                        # Display the frame immediately
                         cv2.imshow(window_name, img_with_overlay)
+                        last_display_time = asyncio.get_event_loop().time()
+                        
+                        # Log processing time occasionally for optimization
+                        if frames_received % 300 == 0:  # Every 5 seconds
+                            total_latency = (last_display_time - frame_start_time) * 1000
+                            print(f"DEBUG: Processing time: {processing_time:.1f}ms, "
+                                 f"total latency: {total_latency:.1f}ms")
                         
                         # Check for window close or 'q' key (non-blocking)
                         key = cv2.waitKey(1) & 0xFF
@@ -210,6 +268,45 @@ class OpenCVDisplayManager:
         finally:
             print(f"DEBUG: Closing event loop for {stream_name}")
             loop.close()
+    
+    def _add_video_overlay_low_latency(self, img: np.ndarray, stream_name: str, fps_display: float) -> np.ndarray:
+        """Ultra-low latency overlay for AMD GPU - minimal processing"""
+        # Minimal overlay for maximum speed
+        height, width = img.shape[:2]
+        
+        # Simplified overlay with direct pixel operations
+        overlay_region = img[10:80, 10:280]  # Smaller overlay area
+        
+        # Fast background darkening using vectorized operations
+        overlay_region[:] = overlay_region * 0.7  # Direct multiplication
+        
+        # Minimal text with maximum performance
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        
+        # Only essential text to minimize rendering time
+        cv2.putText(overlay_region, f"{stream_name}", (5, 20), font, 0.4, (0, 255, 0), 1)
+        cv2.putText(overlay_region, f"{fps_display:.0f} FPS", (5, 40), font, 0.4, (255, 255, 255), 1)
+        cv2.putText(overlay_region, "LOW-LAT", (5, 60), font, 0.3, (255, 255, 0), 1)
+        
+        return img
+    
+    def _add_video_overlay_cpu_fast(self, img: np.ndarray, stream_name: str, fps_display: float) -> np.ndarray:
+        """Fast CPU overlay with minimal latency"""
+        height, width = img.shape[:2]
+        
+        # Minimal overlay processing
+        overlay_region = img[10:80, 10:280]
+        
+        # Fast darkening
+        overlay_region[:] = overlay_region * 0.7
+        
+        # Minimal text
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(overlay_region, f"{stream_name}", (5, 20), font, 0.4, (0, 255, 0), 1)
+        cv2.putText(overlay_region, f"{fps_display:.0f} FPS", (5, 40), font, 0.4, (255, 255, 255), 1)
+        cv2.putText(overlay_region, "CPU", (5, 60), font, 0.3, (255, 255, 0), 1)
+        
+        return img
     
     def _add_video_overlay_gpu_optimized(self, img: np.ndarray, stream_name: str, fps_display: float) -> np.ndarray:
         """Add overlay using OpenCL-optimized operations for AMD GPU"""

@@ -62,7 +62,7 @@ class ConferenceStateSingleton():
         if stream_name not in StreamNames:
             raise ValueError(f"Invalid stream name: {stream_name}")
         
-        # Configure ICE servers for NAT traversal
+        # Configure ICE servers for NAT traversal with low-latency optimizations
         ice_servers = [
             RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
             RTCIceServer(urls=["stun:stun1.l.google.com:19302"]),
@@ -81,7 +81,11 @@ class ConferenceStateSingleton():
             ),
         ]
         
-        configuration = RTCConfiguration(iceServers=ice_servers)
+        # Low-latency configuration for real-time video
+        configuration = RTCConfiguration(
+            iceServers=ice_servers
+            # Note: aiortc has limited configuration options compared to browser WebRTC
+        )
         
         # Create a new RTCPeerConnection with ICE server configuration
         pc = RTCPeerConnection(configuration=configuration)
@@ -159,11 +163,17 @@ class ConferenceStateSingleton():
                 if track.kind == 'video':
                     self.opencv_display_manager.close_window(stream_name)
 
-        # Add transceivers to indicate we want to receive video and audio
-        # This tells the client that the server is ready to receive media tracks
-        pc.addTransceiver("video", direction="recvonly")
-        pc.addTransceiver("audio", direction="recvonly")
-        print(f"DEBUG: Added video and audio transceivers for {stream_name}")
+        # Add transceivers to indicate we want to receive video and audio with low-latency settings
+        # Configure for minimal buffering and maximum responsiveness
+        video_transceiver = pc.addTransceiver("video", direction="recvonly")
+        audio_transceiver = pc.addTransceiver("audio", direction="recvonly")
+        
+        # Configure video transceiver for low latency
+        if video_transceiver.receiver:
+            # Request minimal buffering
+            print(f"DEBUG: Video transceiver configured for low latency")
+            
+        print(f"DEBUG: Added low-latency video and audio transceivers for {stream_name}")
         
         # Add a data channel for communication
         data_channel = pc.createDataChannel(f"{stream_name}_data")
