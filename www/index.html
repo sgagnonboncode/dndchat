@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DnD Chat</title>
+</head>
+<body>
+   
+    <div class="toolbar" style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            Connection:
+            <button data-join-as="board">Board</button>
+            <button data-join-as="gm">GM</button>
+            <span class="separator"> | </span>
+            <button data-join-as="player_1">Caius</button>
+            <button data-join-as="player_2">Han D'job</button>
+            <button data-join-as="player_3">Grabuge</button>
+            <button data-join-as="player_4">Zemeckis</button>
+            <span class="separator"> | </span>
+            <button data-action="stop" id="stop">STOP</button>
+        </div>
+        <div id="local-stream-preview" style="width: 40px; height: 30px; background: #000; border: 1px solid #ccc; display: none;"></div>
+    </div>
+    <hr/>
+    <div class="stream-window" style="width: 100%; height: calc(100vh - 40px); margin: 0px; position: fixed; top: 40px; left: 0;">
+        <!-- Mirror content will be displayed here dynamically -->
+    </div>
+
+
+    <script>
+        // Cache breaking mechanism - append timestamp to script src
+        const timestamp = Date.now();
+        const script = document.createElement('script');
+        script.src = `/static/app.js?v=${timestamp}`;
+        document.head.appendChild(script);
+    </script>
+</body>
+</html>

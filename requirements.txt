@@ -1,0 +1,10 @@
+aiortc
+pydantic
+aiohttp
+asyncio
+fastapi
+uvicorn
+opencv-python
+numpy
+av
+pyopencl
